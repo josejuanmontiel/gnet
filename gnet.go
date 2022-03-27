@@ -71,10 +71,18 @@ func (s Engine) Dup() (dupFD int, err error) {
 }
 
 // Reader is an interface that consists of a number of methods for reading that Conn must implement.
-type Reader interface {
+type NativeReader interface {
 	// ================================== Non-concurrency-safe API's ==================================
-
 	io.Reader
+}
+
+type Reader interface {
+	NativeReader
+}
+
+type GnetReader interface {
+	NativeReader
+
 	io.WriterTo // must be non-blocking, otherwise it may block the event-loop.
 
 	// Next returns a slice containing the next n bytes from the buffer,
@@ -111,12 +119,21 @@ type Reader interface {
 }
 
 // Writer is an interface that consists of a number of methods for writing that Conn must implement.
-type Writer interface {
+type NativeWriter interface {
 	// ================================== Non-concurrency-safe API's ==================================
 
 	io.Writer
-	io.ReaderFrom // must be non-blocking, otherwise it may block the event-loop.
+	// io.ReaderFrom // must be non-blocking, otherwise it may block the event-loop.
+	// ReadFrom(p []byte) (n int, addr net.Addr, err error)
 
+}
+
+type Writer interface {
+	NativeWriter
+}
+
+type GenWriter interface {
+	Writer
 	// Writev writes multiple byte slices to peer synchronously, you must call it in the current goroutine.
 	Writev(bs [][]byte) (n int, err error)
 
@@ -192,18 +209,11 @@ type Socket interface {
 }
 
 // Conn is an interface of underlying connection.
-type Conn interface {
+type NativeConn interface {
 	Reader
 	Writer
-	Socket
 
 	// ================================== Non-concurrency-safe API's ==================================
-
-	// Context returns a user-defined context.
-	Context() (ctx interface{})
-
-	// SetContext sets a user-defined context.
-	SetContext(ctx interface{})
 
 	// LocalAddr is the connection's local socket address.
 	LocalAddr() (addr net.Addr)
@@ -219,6 +229,26 @@ type Conn interface {
 
 	// SetWriteDeadline implements net.Conn.
 	SetWriteDeadline(t time.Time) (err error)
+}
+
+type Conn interface {
+	NativeConn
+
+	Close() (err error)
+}
+
+type GnetConn interface {
+	GenWriter
+	NativeConn
+	Socket
+
+	// ================================== Non-concurrency-safe API's ==================================
+
+	// Context returns a user-defined context.
+	Context() (ctx interface{})
+
+	// SetContext sets a user-defined context.
+	SetContext(ctx interface{})
 
 	// ==================================== Concurrency-safe API's ====================================
 
@@ -227,7 +257,7 @@ type Conn interface {
 
 	// Close closes the current connection, usually you don't need to pass a non-nil callback
 	// because you should use OnClose() instead, the callback here is only for compatibility.
-	Close(callback AsyncCallback) (err error)
+	CloseAsyn(callback AsyncCallback) (err error)
 }
 
 type (
@@ -249,11 +279,11 @@ type (
 		// It is usually not recommended to send large amounts of data back to the peer in OnOpened.
 		//
 		// Note that the bytes returned by OnOpened will be sent back to the peer without being encoded.
-		OnOpen(c Conn) (out []byte, action Action)
+		OnOpen(c GnetConn) (out []byte, action Action)
 
 		// OnClose fires when a connection has been closed.
 		// The parameter err is the last known connection error.
-		OnClose(c Conn, err error) (action Action)
+		OnClose(c GnetConn, err error) (action Action)
 
 		// OnTraffic fires when a socket receives data from the peer.
 		//
@@ -261,7 +291,7 @@ type (
 		// as this []byte will be reused within event-loop after React() returns.
 		// If you have to use packet in a new goroutine, then you need to make a copy of buf and pass this copy
 		// to that new goroutine.
-		OnTraffic(c Conn) (action Action)
+		OnTraffic(c GnetConn) (action Action)
 
 		// OnTick fires immediately after the engine starts and will fire again
 		// following the duration specified by the delay return value.
@@ -287,18 +317,18 @@ func (es *BuiltinEventEngine) OnShutdown(_ Engine) {
 
 // OnOpen fires when a new connection has been opened.
 // The parameter out is the return value which is going to be sent back to the peer.
-func (es *BuiltinEventEngine) OnOpen(_ Conn) (out []byte, action Action) {
+func (es *BuiltinEventEngine) OnOpen(_ GnetConn) (out []byte, action Action) {
 	return
 }
 
 // OnClose fires when a connection has been closed.
 // The parameter err is the last known connection error.
-func (es *BuiltinEventEngine) OnClose(_ Conn, _ error) (action Action) {
+func (es *BuiltinEventEngine) OnClose(_ GnetConn, _ error) (action Action) {
 	return
 }
 
 // OnTraffic fires when a local socket receives data from the peer.
-func (es *BuiltinEventEngine) OnTraffic(_ Conn) (action Action) {
+func (es *BuiltinEventEngine) OnTraffic(_ GnetConn) (action Action) {
 	return
 }
 
